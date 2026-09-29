@@ -286,6 +286,46 @@ final class Shaders {
             }
             """;
 
+    // ------------------------------------------------------------------ wisps (additive glow sprites)
+
+    static final String WISP_VS = """
+            #version 300 es
+            layout(location = 0) in vec2 aPos;
+            uniform mat4 uViewProj;
+            uniform vec3 uCenter;
+            uniform vec3 uRight;
+            uniform vec3 uUp;
+            uniform float uSize;
+            out vec2 vUv;
+            out vec3 vWorld;
+            void main() {
+                vUv = aPos;
+                vec3 w = uCenter + (uRight * aPos.x + uUp * aPos.y) * uSize;
+                vWorld = w;
+                gl_Position = uViewProj * vec4(w, 1.0);
+            }
+            """;
+
+    static final String WISP_FS = """
+            #version 300 es
+            precision highp float;
+            in vec2 vUv;
+            in vec3 vWorld;
+            uniform vec3 uColor;
+            uniform vec3 uCamPos;
+            uniform float uAlpha;
+            out vec4 fragColor;
+            void main() {
+                float r2 = dot(vUv, vUv);
+                if (r2 > 1.0) discard;
+                float core = exp(-r2 * 70.0);
+                float halo = exp(-r2 * 6.0) * (1.0 - r2);
+                float fog = exp(-distance(vWorld, uCamPos) * 0.008);
+                vec3 c = uColor * (halo * 0.6 + core * 2.0) + vec3(core);
+                fragColor = vec4(c * uAlpha * fog, 1.0);
+            }
+            """;
+
     // ------------------------------------------------------------------ sky
 
     static final String SKY_VS = """

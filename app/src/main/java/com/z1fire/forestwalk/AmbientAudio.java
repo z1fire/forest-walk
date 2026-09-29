@@ -4,7 +4,7 @@ import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioTrack;
 
-/** Real-time synthesised forest ambience: gusting wind, rustling leaves, birdsong, footsteps. */
+/** Real-time synthesised forest ambience (gusting wind, rustling leaves, birdsong) plus game chimes. */
 final class AmbientAudio implements Runnable {
     private static final int SR = 22050;
     private static final float TWO_PI = (float) (Math.PI * 2);
@@ -26,8 +26,8 @@ final class AmbientAudio implements Runnable {
     private final float[] echoR = new float[(int) (SR * 0.31f)];
     private int eiL, eiR;
 
-    private int lastStep;
-    private float stepEnv, stepLp, stepGain;
+    private final Chime chime = new Chime();
+    private int lastCatch, lastOver;
 
     AmbientAudio(Controls ctl) {
         this.ctl = ctl;
@@ -86,7 +86,8 @@ final class AmbientAudio implements Runnable {
             return;   // no audio on this device; the walk still works
         }
         short[] buf = new short[1024 * 2];
-        lastStep = ctl.stepCount;
+        lastCatch = ctl.catchCount;
+        lastOver = ctl.overCount;
         try {
             while (running) {
                 fill(buf);
@@ -100,11 +101,15 @@ final class AmbientAudio implements Runnable {
     }
 
     private void fill(short[] buf) {
-        int step = ctl.stepCount;
-        if (step != lastStep) {
-            lastStep = step;
-            stepEnv = 1f;
-            stepGain = 0.3f * Math.min(1.2f, ctl.speed / 1.6f) * (0.8f + 0.4f * rand());
+        int caught = ctl.catchCount;
+        if (caught != lastCatch) {
+            lastCatch = caught;
+            chime.caught(ctl.score);
+        }
+        int over = ctl.overCount;
+        if (over != lastOver) {
+            lastOver = over;
+            chime.lanternOut();
         }
         float targetMaster = ctl.soundOn ? 1f : 0f;
         int frames = buf.length / 2;
@@ -154,16 +159,9 @@ final class AmbientAudio implements Runnable {
             l += bl + er * 0.35f;
             r += br + el * 0.35f;
 
-            // footsteps on leaf litter: thud plus crackle
-            if (stepEnv > 0.001f) {
-                float n = white();
-                stepLp += (n - stepLp) * 0.2f;
-                float crackle = white() > 0.9f ? white() * 0.6f : 0f;
-                float s = (stepLp * 1.2f + crackle) * stepEnv * stepGain;
-                l += s;
-                r += s;
-                stepEnv *= 0.99905f;
-            }
+            float ch = chime.sample();
+            l += ch;
+            r += ch;
 
             l *= master;
             r *= master;
@@ -228,6 +226,58 @@ final class AmbientAudio implements Runnable {
         b.cur = 0;
         b.phase = 0f;
         b.active = true;
+    }
+
+    /** Bell-like tones: a rising arpeggio for each caught wisp, a falling pair when the lantern dies. */
+    private static final class Chime {
+        private static final int VOICES = 8;
+        private static final int[] PENTA = {0, 2, 4, 7, 9};
+        final int[] delay = new int[VOICES];
+        final float[] freq = new float[VOICES], amp = new float[VOICES], env = new float[VOICES],
+                decay = new float[VOICES], phase = new float[VOICES];
+        private int next;
+
+        void caught(int score) {
+            // Climb a pentatonic scale as the score goes up.
+            int step = score % 10;
+            float base = 523f * (float) Math.pow(2, (PENTA[step % 5] + 12 * (step / 5)) / 12.0);
+            note(0, base, 0.09f, 0.35f);
+            note((int) (SR * 0.07f), base * 1.25f, 0.08f, 0.35f);
+            note((int) (SR * 0.14f), base * 1.5f, 0.08f, 0.6f);
+        }
+
+        void lanternOut() {
+            note(0, 392f, 0.10f, 0.8f);
+            note((int) (SR * 0.35f), 261.6f, 0.11f, 1.4f);
+        }
+
+        private void note(int d, float f, float a, float seconds) {
+            int v = next;
+            next = (next + 1) % VOICES;
+            delay[v] = d;
+            freq[v] = f;
+            amp[v] = a;
+            env[v] = 1f;
+            phase[v] = 0f;
+            decay[v] = (float) Math.exp(-1.0 / (seconds * SR));
+        }
+
+        float sample() {
+            float s = 0f;
+            for (int v = 0; v < VOICES; v++) {
+                if (env[v] < 1e-4f) continue;
+                if (delay[v] > 0) {
+                    delay[v]--;
+                    continue;
+                }
+                phase[v] += TWO_PI * freq[v] / SR;
+                if (phase[v] > TWO_PI) phase[v] -= TWO_PI;
+                float p = phase[v];
+                s += ((float) Math.sin(p) + 0.2f * (float) Math.sin(p * 3f)) * env[v] * amp[v];
+                env[v] *= decay[v];
+            }
+            return s;
+        }
     }
 
     private static final class Bird {

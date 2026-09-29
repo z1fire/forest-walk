@@ -1,6 +1,7 @@
 package com.z1fire.forestwalk;
 
 import android.app.Activity;
+import android.content.SharedPreferences;
 import android.opengl.GLSurfaceView;
 import android.os.Build;
 import android.os.Bundle;
@@ -51,6 +52,11 @@ public class MainActivity extends Activity {
         });
 
         audio = new AmbientAudio(controls);
+        controls.best = prefs().getInt("best", 0);
+    }
+
+    private SharedPreferences prefs() {
+        return getSharedPreferences("wisp_hunt", MODE_PRIVATE);
     }
 
     @Override
@@ -65,6 +71,7 @@ public class MainActivity extends Activity {
     protected void onPause() {
         audio.stop();
         glView.onPause();
+        prefs().edit().putInt("best", controls.best).apply();
         super.onPause();
     }
 

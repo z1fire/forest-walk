@@ -11,13 +11,23 @@ Every forest is generated from a seed: rolling terrain, a winding dirt trail, an
 spruce, pine, beech and birch with saplings, ferns, grass and mossy boulders. Walk anywhere,
 the world streams in around you forever, or let auto-walk carry you along the trail.
 
+## Wisp Hunt
+
+Glowing wisps drift through the forest. Catch them before your lantern burns out:
+
+- Follow the compass at the top of the screen to the nearest wisp and walk into it to catch it.
+- Wisps shy away when you get close, so you'll have to chase them through the trees.
+- Every catch refuels the lantern, but it burns faster the more you catch, and later wisps spawn further away.
+- The forest grows darker as the lantern runs low. When it goes out, the round ends and your best score is saved.
+- Each new round takes place in a freshly generated forest.
+
 ## Features
 
 - **Infinite procedural world**: simplex-noise terrain streamed in 32 m chunks around you, with a trail that meanders through valleys and over hills.
 - **Four procedurally built tree species** with near and far detail levels, generated per seed. Foliage textures (needle sprays, leaf clusters, fern fronds, grass) are painted procedurally at startup, so the APK contains no image assets.
 - **Realistic lighting**: real-time sun shadows with dappled light through the canopy, leaf translucency, hemispheric ambient light, distance haze, drifting clouds, ACES tone mapping and 4x MSAA with alpha-to-coverage foliage.
 - **Living scene**: wind gusts sway trees, grass and ferns.
-- **Synthesised ambient audio**: wind, rustling leaves, birdsong with echo, and footsteps on leaf litter.
+- **Synthesised ambient audio**: wind, rustling leaves, birdsong with echo, and chimes for each wisp you catch.
 
 ## Controls
 
@@ -26,7 +36,7 @@ the world streams in around you forever, or let auto-walk carry you along the tr
 | Walk | Drag anywhere on the left side of the screen (floating joystick) |
 | Look around | Drag on the right side |
 | Auto-walk along the trail | Tap **AUTO-WALK** |
-| Generate a different forest | Tap **NEW FOREST** |
+| Start / restart a round | Tap anywhere on the title or game-over screen |
 | Mute / unmute | Tap **SOUND** |
 
 ## Install

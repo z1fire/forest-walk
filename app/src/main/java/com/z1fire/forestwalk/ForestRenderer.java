@@ -43,8 +43,10 @@ final class ForestRenderer implements GLSurfaceView.Renderer {
     private World world;
     private final HashMap<Long, Chunk> chunks = new HashMap<>();
 
-    private Program terrainProg, objectProg, shadowProg, skyProg;
-    private int terrainIbo, skyVao;
+    private Program terrainProg, objectProg, shadowProg, skyProg, wispProg;
+    private int terrainIbo, skyVao, quadVao;
+    private final WispGame game;
+    private float exposure = 1f;
     private int shadowFbo, shadowTex;
     private boolean msaa;
     private int width = 1, height = 1;
@@ -74,6 +76,7 @@ final class ForestRenderer implements GLSurfaceView.Renderer {
 
     ForestRenderer(Controls ctl) {
         this.ctl = ctl;
+        game = new WispGame(ctl, chunks);
     }
 
     // ------------------------------------------------------------------ lifecycle
@@ -88,8 +91,10 @@ final class ForestRenderer implements GLSurfaceView.Renderer {
         objectProg = new Program(Shaders.OBJECT_VS, Shaders.OBJECT_FS);
         shadowProg = new Program(Shaders.OBJECT_VS, Shaders.SHADOW_FS);
         skyProg = new Program(Shaders.SKY_VS, Shaders.SKY_FS);
+        wispProg = new Program(Shaders.WISP_VS, Shaders.WISP_FS);
         buildTerrainIndices();
         buildSky();
+        buildQuad();
         buildShadowTarget();
         buildTextures();
         // Any previous GL objects died with the old context; regenerate everything.
@@ -119,12 +124,19 @@ final class ForestRenderer implements GLSurfaceView.Renderer {
         lastNanos = now;
         time += dt;
 
-        if (ctl.takeRegenerate()) {
+        boolean start = ctl.takeStart();
+        if (start && ctl.gameState == Controls.OVER) {
+            // Every new round is played in a freshly grown forest.
             ctl.loading = true;
             newWorld(100000 + new Random().nextInt(900000));
         }
         updateChunks(chunks.isEmpty() ? 1000 : 2);
+        if (start && ctl.gameState != Controls.PLAYING) game.start(world, px, pz, yaw);
         updatePlayer(dt);
+        game.update(dt, px, pz, yaw, time);
+        // The world dims as the lantern burns down, so the wisps stand out more.
+        float targetExp = game.active() ? 0.4f + 0.6f * World.smoothstep(0f, 15f, ctl.oil) : 1f;
+        exposure += (targetExp - exposure) * Math.min(1f, dt * 2f);
         setupCamera();
         setupShadow();
         float gust = 0.6f + 0.4f * (float) (Math.sin(time * 0.21) * Math.sin(time * 0.53 + 1.3));
@@ -191,6 +203,20 @@ final class ForestRenderer implements GLSurfaceView.Renderer {
         GLES30.glGenBuffers(1, t, 0);
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, t[0]);
         GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, tri.length * 4, Mesh.floatBuffer(tri, tri.length), GLES30.GL_STATIC_DRAW);
+        GLES30.glEnableVertexAttribArray(0);
+        GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 8, 0);
+        GLES30.glBindVertexArray(0);
+    }
+
+    private void buildQuad() {
+        float[] q = {-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f};
+        int[] t = new int[1];
+        GLES30.glGenVertexArrays(1, t, 0);
+        quadVao = t[0];
+        GLES30.glBindVertexArray(quadVao);
+        GLES30.glGenBuffers(1, t, 0);
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, t[0]);
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, q.length * 4, Mesh.floatBuffer(q, q.length), GLES30.GL_STATIC_DRAW);
         GLES30.glEnableVertexAttribArray(0);
         GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 8, 0);
         GLES30.glBindVertexArray(0);
@@ -346,10 +372,7 @@ final class ForestRenderer implements GLSurfaceView.Renderer {
         collide();
 
         float speed = (float) Math.sqrt(velX * velX + velZ * velZ);
-        ctl.speed = speed;
-        float prev = stepPhase;
         stepPhase += speed * dt / 0.78f;
-        if ((int) stepPhase != (int) prev) ctl.stepCount++;
         float bob = ((float) Math.abs(Math.sin(stepPhase * Math.PI)) - 0.5f) * 0.05f * Math.min(1f, speed / 1.4f);
         float target = world.height(px, pz) + EYE_HEIGHT + bob;
         camY += (target - camY) * Math.min(1f, dt * 12f);
@@ -569,7 +592,7 @@ final class ForestRenderer implements GLSurfaceView.Renderer {
         p.set3f("uCamPos", px, camY, pz);
         p.set1f("uFogDensity", 0.0088f);
         p.set1f("uTime", time);
-        p.set1f("uExposure", 1.0f);
+        p.set1f("uExposure", exposure);
         p.setMat4("uShadowMat", shadowMat);
         p.set1i("uShadowMap", 1);
     }
@@ -648,6 +671,32 @@ final class ForestRenderer implements GLSurfaceView.Renderer {
         GLES30.glBindVertexArray(skyVao);
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3);
         GLES30.glDepthFunc(GLES30.GL_LESS);
+        renderWisps();
         GLES30.glBindVertexArray(0);
+    }
+
+    private void renderWisps() {
+        if (!game.active()) return;
+        GLES30.glEnable(GLES30.GL_BLEND);
+        GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE);
+        GLES30.glDepthMask(false);
+        wispProg.use();
+        wispProg.setMat4("uViewProj", viewProj);
+        wispProg.set3f("uRight", view[0], view[4], view[8]);
+        wispProg.set3f("uUp", view[1], view[5], view[9]);
+        wispProg.set3f("uCamPos", px, camY, pz);
+        GLES30.glBindVertexArray(quadVao);
+        for (int i = 0; i < WispGame.COUNT; i++) {
+            float dx = game.x[i] - px, dz = game.z[i] - pz;
+            float d = (float) Math.sqrt(dx * dx + dz * dz);
+            float flicker = 0.85f + 0.15f * (float) Math.sin(time * 9.1f + i * 2.3f) * (float) Math.sin(time * 5.3f + i);
+            wispProg.set3f("uCenter", game.x[i], game.y[i], game.z[i]);
+            wispProg.set1f("uSize", 0.8f + d * 0.012f);   // grow a little with distance so far wisps stay visible
+            wispProg.set3f("uColor", 0.75f, 0.95f, 0.45f);
+            wispProg.set1f("uAlpha", game.fade[i] * flicker);
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4);
+        }
+        GLES30.glDepthMask(true);
+        GLES30.glDisable(GLES30.GL_BLEND);
     }
 }
